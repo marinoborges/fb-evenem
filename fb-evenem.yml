@@ -1,0 +1,96 @@
+version: "3.8"
+
+services:
+    fb-evenem-wildfly:
+        image: fb-evenem-wildfly
+        #image: marinoborges/fb-evenem-wildfly
+        build:
+            context: "./fb-evenem-wildfly"
+            args:
+                - "DB_HOST=docker1,docker2,docker3"
+                - "DB_NAME=bradesco_enem3"
+                - "DB_USER=postgres"
+                - "DB_PASS=zZ0kKDEEUQnY"
+                - "POSTGRES_JDBC=postgresql-42.2.13.jar"
+                - "JVM_XMX=2048m"
+                - "LIB_PATH=/opt/lib"
+        ports:
+            - "8080:8080"
+        labels:
+            - "traefik.docker.network=traefik-overlay-net"
+            - "traefik.port=8080"
+            - "traefik.frontend.rule=PathPrefix:/enem"
+            - "traefik.backend.loadbalancer.stickiness=true"
+        extra_hosts:
+            #- "fb-evenem-postgresql.host:172.30.0.7"
+            - "docker1:172.30.1.84"
+            - "docker2:172.30.0.83"
+            - "docker3:172.30.0.7"
+        deploy:
+            replicas: 2
+            resources:
+                reservations:
+                    memory: 2100M
+        networks:
+            - traefik-overlay-net
+
+    fb-evenem-postgres:
+        image: fb-evenem-postgres
+        #image: marinoborges/fb-evenem-postgres
+        build:
+            context: "./fb-evenem-postgres"
+            args:
+                - "PG_USER=postgres"
+                - "PG_HOME=/var/lib/postgresql"
+                - "DB_NAME=bradesco_enem3"
+                - "DB_PASS=zZ0kKDEEUQnY"
+                - "SQL_FILE=bradesco_enem3.sql.gz"
+        ports:
+            - "5432:5432"
+        volumes:
+            - fb-evenem-postgres-etc:/etc/postgresql
+            - fb-evenem-postgres-log:/var/log/postgresql
+            - fb-evenem-postgres-lib:/var/lib/postgresql
+        deploy:
+            replicas: 1
+
+    traefik:
+        image: traefik:1.7
+        command:
+            - "--docker"
+            - "--docker.swarmmode"
+            - "--docker.watch"
+            - "--web"
+            - "--loglevel=DEBUG"
+        ports:
+            - "80:80"
+            - "8010:8080"
+        networks:
+            - traefik-overlay-net
+        volumes:
+            - "/var/run/docker.sock:/var/run/docker.sock"
+        deploy:
+            mode: global
+            placement:
+                constraints: [node.role == manager]
+
+networks:
+    traefik-overlay-net:
+        driver: "overlay"
+
+volumes:
+    fb-evenem-postgres-etc:
+        driver_opts:
+            type: none
+            o: bind
+            device: "/docker-vol/fb-evenem-postgres/etc"
+    fb-evenem-postgres-log:
+        driver_opts:
+            type: none
+            o: bind
+            device: "/docker-vol/fb-evenem-postgres/log"
+    fb-evenem-postgres-lib:
+        driver_opts:
+            type: none
+            o: bind
+            device: "/docker-vol/fb-evenem-postgres/lib"
