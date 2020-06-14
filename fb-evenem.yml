@@ -16,11 +16,6 @@ services:
                 - "LIB_PATH=/opt/lib"
         ports:
             - "8080:8080"
-        labels:
-            - "traefik.docker.network=traefik-overlay-net"
-            - "traefik.port=8080"
-            - "traefik.frontend.rule=PathPrefix:/enem"
-            - "traefik.backend.loadbalancer.stickiness=true"
         extra_hosts:
             #- "fb-evenem-postgresql.host:172.30.0.7"
             - "docker1:172.30.1.84"
@@ -31,6 +26,11 @@ services:
             resources:
                 reservations:
                     memory: 2100M
+            labels:
+                - "traefik.docker.network=traefik-overlay-net"
+                - "traefik.port=8080"
+                - "traefik.frontend.rule=PathPrefix:/enem"
+                - "traefik.backend.loadbalancer.stickiness=true"
         networks:
             - traefik-overlay-net
 
