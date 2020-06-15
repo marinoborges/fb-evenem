@@ -53,11 +53,6 @@ services:
                 - "traefik.backend.loadbalancer.stickiness=true"
         networks:
             - traefik-net
-        healthcheck:
-            test: curl --fail -s http://localhost:8080/enem || exit 1
-            interval: 1m30s
-            timeout: 10s
-            retries: 3
             
     fb-evenem-postgres:
         image: fb-evenem-postgres
@@ -78,6 +73,8 @@ services:
             - fb-evenem-postgres-lib:/var/lib/postgresql
         deploy:
             replicas: 1
+        networks:
+            - traefik-net
 
 networks:
     traefik-net:
