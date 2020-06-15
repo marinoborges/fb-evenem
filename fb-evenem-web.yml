@@ -49,7 +49,7 @@ services:
                 reservations:
                     memory: 2100M
             labels:
-                - "traefik.docker.network=fb-evenem_traefik-net"
+                - "traefik.docker.network=fb-evenem-web_traefik-net"
                 - "traefik.port=8080"
                 - "traefik.frontend.rule=PathPrefix:/enem"
                 - "traefik.backend.loadbalancer.stickiness=true"
