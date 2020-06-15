@@ -21,7 +21,7 @@ services:
             placement:
                 constraints: [node.role == manager]
         healthcheck:
-            test: curl --fail -s http://localhost:80/enem || exit 1
+            test: curl --fail -s http://localhost:8010 || exit 1
             interval: 1m30s
             timeout: 10s
             retries: 3
@@ -83,11 +83,6 @@ services:
             - fb-evenem-postgres-lib:/var/lib/postgresql
         deploy:
             replicas: 1
-        healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U postgres"]
-            interval: 10s
-            timeout: 5s
-            retries: 5
 
 networks:
     traefik-net:
