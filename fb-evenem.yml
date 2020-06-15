@@ -1,6 +1,31 @@
 version: "3.3"
 
 services:
+    traefik:
+        image: traefik:1.7
+        command:
+            - "--docker"
+            - "--docker.swarmmode"
+            - "--docker.watch"
+            - "--web"
+            - "--loglevel=DEBUG"
+        ports:
+            - "80:80"
+            - "8010:8080"
+        networks:
+            - traefik-net
+        volumes:
+            - "/var/run/docker.sock:/var/run/docker.sock"
+        deploy:
+            mode: global
+            placement:
+                constraints: [node.role == manager]
+        healthcheck:
+            test: curl --fail -s http://localhost:80/enem || exit 1
+            interval: 1m30s
+            timeout: 10s
+            retries: 3
+            
     fb-evenem-wildfly:
         image: fb-evenem-wildfly
         #image: marinoborges/fb-evenem-wildfly
@@ -27,12 +52,12 @@ services:
                 reservations:
                     memory: 2100M
             labels:
-                - "traefik.docker.network=traefik-overlay-net"
+                - "traefik.docker.network=fb-evenem_traefik-net"
                 - "traefik.port=8080"
                 - "traefik.frontend.rule=PathPrefix:/enem"
                 - "traefik.backend.loadbalancer.stickiness=true"
         networks:
-            - traefik-overlay-net
+            - traefik-net
         healthcheck:
             test: curl --fail -s http://localhost:8080/enem || exit 1
             interval: 1m30s
@@ -63,34 +88,9 @@ services:
             interval: 10s
             timeout: 5s
             retries: 5
-            
-    traefik:
-        image: traefik:1.7
-        command:
-            - "--docker"
-            - "--docker.swarmmode"
-            - "--docker.watch"
-            - "--web"
-            - "--loglevel=DEBUG"
-        ports:
-            - "80:80"
-            - "8010:8080"
-        networks:
-            - traefik-overlay-net
-        volumes:
-            - "/var/run/docker.sock:/var/run/docker.sock"
-        deploy:
-            mode: global
-            placement:
-                constraints: [node.role == manager]
-        healthcheck:
-            test: curl --fail -s http://localhost:80/enem || exit 1
-            interval: 1m30s
-            timeout: 10s
-            retries: 3
 
 networks:
-    traefik-overlay-net:
+    traefik-net:
         driver: "overlay"
 
 volumes:
