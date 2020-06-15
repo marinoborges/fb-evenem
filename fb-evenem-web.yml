@@ -56,45 +56,6 @@ services:
         networks:
             - traefik-net
             
-    fb-evenem-postgres:
-        image: fb-evenem-postgres
-        #image: marinoborges/fb-evenem-postgres
-        build:
-            context: "./fb-evenem-postgres"
-            args:
-                - "PG_USER=postgres"
-                - "PG_HOME=/var/lib/postgresql"
-                - "DB_NAME=bradesco_enem3"
-                - "DB_PASS=zZ0kKDEEUQnY"
-                - "SQL_FILE=bradesco_enem3.sql.gz"
-        ports:
-            - "5432:5432"
-        volumes:
-            - fb-evenem-postgres-etc:/etc/postgresql
-            - fb-evenem-postgres-log:/var/log/postgresql
-            - fb-evenem-postgres-lib:/var/lib/postgresql
-        deploy:
-            replicas: 1
-        networks:
-            - traefik-net
-
 networks:
     traefik-net:
         driver: "overlay"
-
-volumes:
-    fb-evenem-postgres-etc:
-        driver_opts:
-            type: none
-            o: bind
-            device: "/docker-vol/fb-evenem-postgres/etc"
-    fb-evenem-postgres-log:
-        driver_opts:
-            type: none
-            o: bind
-            device: "/docker-vol/fb-evenem-postgres/log"
-    fb-evenem-postgres-lib:
-        driver_opts:
-            type: none
-            o: bind
-            device: "/docker-vol/fb-evenem-postgres/lib"
