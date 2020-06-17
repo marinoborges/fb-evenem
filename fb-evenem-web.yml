@@ -26,16 +26,6 @@ services:
     fb-evenem-wildfly:
         image: fb-evenem-wildfly
         #image: marinoborges/fb-evenem-wildfly
-        build:
-            context: "./fb-evenem-wildfly"
-            args:
-                - "DB_HOST=docker1,docker2,docker3"
-                - "DB_NAME=bradesco_enem3"
-                - "DB_USER=postgres"
-                - "DB_PASS=zZ0kKDEEUQnY"
-                - "POSTGRES_JDBC=postgresql-42.2.13.jar"
-                - "JVM_XMX=2048m"
-                - "LIB_PATH=/opt/lib"
         ports:
             - "8080:8080"
         extra_hosts:
