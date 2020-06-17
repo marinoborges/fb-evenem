@@ -4,14 +4,6 @@ services:
     fb-evenem-postgres:
         image: fb-evenem-postgres
         #image: marinoborges/fb-evenem-postgres
-        build:
-            context: "./fb-evenem-postgres"
-            args:
-                - "PG_USER=postgres"
-                - "PG_HOME=/var/lib/postgresql"
-                - "DB_NAME=bradesco_enem3"
-                - "DB_PASS=zZ0kKDEEUQnY"
-                - "SQL_FILE=bradesco_enem3.sql.gz"
         ports:
             - "5432:5432"
         volumes:
