@@ -15,5 +15,6 @@ Check stack fb-evenem:
 
 ``
 docker stack ps fb-evenem-postgres --no-trunc
+
 docker stack ps fb-evenem-web --no-trunc
 ``
