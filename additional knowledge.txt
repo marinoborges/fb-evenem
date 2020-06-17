@@ -1,0 +1,102 @@
+###### INSTALL DOCKER
+apt-get update && apt-get install \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg-agent \
+    software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+add-apt-repository \
+   "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+   $(lsb_release -cs) \
+   stable"
+apt-get update && apt-get install docker-ce docker-ce-cli containerd.io
+
+###### CREATE DOCKER SWARM (3 servers managers)
+# Used ports for docker swarm service:
+Inbound Traffic for Swarm Management https://www.bretfisher.com/docker-swarm-firewall-ports/
+-TCP port 2377 for cluster management & raft sync communications
+-TCP and UDP port 7946 for "control plane" gossip discovery communication between all nodes
+-UDP port 4789 for "data plane" VXLAN overlay network traffic
+-IP Protocol 50 (ESP) if you plan on using overlay network with the encryption option
+
+docker1# docker swarm init
+# GERAR TOKEN PARA ADICIONAR NOVOS MANAGERS
+docker1# docker swarm join-token manager 
+# ADICIONAR docker2 e docker3 como managers
+docker2# docker swarm join --token <TOKEN_GERADO> (ex: SWMTKN-1-3gj9bv7jlsrca3dwoyhu7twlshflxzdtj6djmig0enhqb5ncgl-booywhsgfg0w1dontvtgd5otr 172.30.0.7:2377)
+docker3# docker swarm join --token <TOKEN_GERADO> (ex: SWMTKN-1-3gj9bv7jlsrca3dwoyhu7twlshflxzdtj6djmig0enhqb5ncgl-booywhsgfg0w1dontvtgd5otr 172.30.0.7:2377)
+
+
+##### GLUSTERFS https://docs.gluster.org/en/latest/Quick-Start-Guide/Quickstart/
+https://blog.ruanbekker.com/blog/2019/03/05/setup-a-3-node-replicated-storage-volume-with-glusterfs/?referral=github.com
+# PORTS
+24007 – Gluster Daemon
+24008 – Management
+49152 - 49200
+
+#Tuning
+https://access.redhat.com/documentation/en-us/red_hat_gluster_storage/3.2/html/administration_guide/chap-managing_red_hat_storage_volumes
+https://docs.gluster.org/en/latest/Administrator%20Guide/Linux%20Kernel%20Tuning/
+https://lists.gluster.org/pipermail/gluster-users/2014-March/016419.html
+https://docs.gluster.org/en/latest/Administrator%20Guide/Managing%20Volumes/#tuning-options
+https://staged-gluster-docs.readthedocs.io/en/release3.7.0beta1/Developer-guide/write-behind/
+
+# Profile
+root@docker2:/data/brick1/gv0# gluster volume profile gv0 start
+root@docker2:/data/brick1/gv0# gluster volume profile gv0 info | tee /tmp/profile
+root@docker2:/data/brick1/gv0# gluster volume profile gv0 stop
+
+##### RUN git clone
+# On all servers:
+apt-get install git git-lfs
+git lfs clone https://marinoborges@github.com/marinoborges/fb-evenem
+
+
+####### DOCKER postgres https://hub.docker.com/_/postgres
+##START POSTGRES SERVICE --constraint node.labels.postgres==yes
+# Build dockerfile
+docker build -t fb-evenem-postgres .
+
+# Create volumes
+root@ip-172-30-0-7:~/fb-evenem-postgres# mkdir -p /docker-vol/fb-evenem-postgres/etc
+root@ip-172-30-0-7:~/fb-evenem-postgres# mkdir -p /docker-vol/fb-evenem-postgres/log
+root@ip-172-30-0-7:~/fb-evenem-postgres# mkdir -p /docker-vol/fb-evenem-postgres/lib
+root@ip-172-30-0-7:~/fb-evenem-postgres# docker volume create --name fb-evenem-postgres-etc --opt type=none --opt o=bind --opt device=/docker-vol/fb-evenem-postgres/etc
+root@ip-172-30-0-7:~/fb-evenem-postgres# docker volume create --name fb-evenem-postgres-log --opt type=none --opt o=bind --opt device=/docker-vol/fb-evenem-postgres/log
+root@ip-172-30-0-7:~/fb-evenem-postgres# docker volume create --name fb-evenem-postgres-lib --opt type=none --opt o=bind --opt device=/docker-vol/fb-evenem-postgres/lib
+
+
+# Run image fb-evenem-postgres
+root@ip-172-30-0-7:~/fb-evenem-postgres# docker run -d --name fb-evenem-postgres -p 5432:5432 -v fb-evenem-postgres-etc:/etc/postgresql -v fb-evenem-postgres-log:/var/log/postgresql -v fb-evenem-postgres-lib:/var/lib/postgresql -it fb-evenem-postgres
+
+# Start service
+root@ip-172-30-0-7:~/fb-evenem-postgres# docker service create --name fb-evenem-postgres --replicas=1 -p 5432:5432 --mount type=volume,source=fb-evenem-postgres-etc,destination=/etc/postgresql --mount type=volume,source=fb-evenem-postgres-log,destination=/var/log/postgresql --mount type=volume,source=fb-evenem-postgres-lib,destination=/var/lib/postgresql fb-evenem-postgres
+
+# Find volumes attached to the container
+root@ip-172-30-0-7:~# docker inspect --format='{{json .Mounts}}' 71595d9457c8 | python -m json.tool
+
+### RUN docker stack deploy
+root@docker1:~/fb-evenem# docker stack deploy -c fb-evenem-postgres.yml fb-evenem-postgres
+
+
+####### DOCKER wildfly
+
+# Build dockerfile
+root@fb-wildfly-evenem:~/fb-evenem-wildfly# docker build -t fb-evenem-wildfly .
+
+# Run image fb-evenem-wildfly
+root@fb-wildfly-evenem:~/fb-evenem-wild  fly# docker run -d --name fb-evenem-wildfly --add-host fb-evenem-postgres.host:172.30.0.7 -p 8080:8080 -it fb-evenem-wildfly
+
+# TESTAR INICIAR COM docker service
+root@ip-172-30-1-84:~/fb-evenem-wildfly# docker service create --name fb-evenem-wildfly -p 8080:8080 --network whoaminet --replicas=2 --reserve-memory=2100MB --label "traefik.docker.network=whoaminet" --label "traefik.port=8080" --label "traefik.frontend.rule=PathPrefix:/enem" -l "traefik.backend.loadbalancer.stickiness=true" --host docker1:172.30.1.84 --host docker2:172.30.0.83 --host docker3:172.30.0.7 fb-evenem-wildfly
+
+### RUN docker stack deploy
+root@docker1:~/fb-evenem# docker stack deploy -c fb-evenem-web.yml fb-evenem-web
+
+# START traefik
+root@fb-wildfly-evenem:~/fb-evenem-wildfly# docker service create --name traefik -p80:80 -p8010:8080 --mount type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock --mode=global --constraint 'node.role == manager' --network whoaminet traefik:1.7 --docker --docker.swarmmode --docker.watch --web --loglevel=DEBUG
+
+### SMTP ERROR
+21:35:37,119 ERROR [stderr] (default task-11) Caused by: javax.mail.AuthenticationFailedException: 535-5.7.8 Username and Password not accepted. Learn more at
+21:35:37,119 ERROR [stderr] (default task-11) 535 5.7.8  https://support.google.com/mail/?p=BadCredentials 125sm3938479pff.130 - gsmtp

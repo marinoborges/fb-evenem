@@ -1,0 +1,161 @@
+# Planned Infrastructure:
+- Premise: Fault tolerance, high availability and load balance. All services could run on any server/manager.
+- 3 Ubuntu servers joined as managers in a Docker Swarm Cluster. Cluster with 3 managers supports 1 server fault.
+- Glusterfs volume shared between the 3 managers
+- Deploy services as docker stack: 2 wildfly instances, 1 postgres instances
+- All services could run on any server/manager
+- Traefik provides sticky session at port 80/TCP and dashboard at port 8010/TCP
+- Wildfly 9 provides web service at port 8080
+- Postgres provides database at port 5432
+
+## Verificações:
+- Reverse proxy suporte sticky session? Se sim, apontar para porta 8080. Se não, apontar para porta 80. O apontamento (upstream) deve ser feito para as 3 máquinas
+- Qual IP das 3 máquinas?
+
+############### 0 - Check IP, hosts, hostname and perform network tuning
+###add /etc/hosts, (exemplo em app2.faculdadepater.com.br:/etc/hosts):
+<IP_DOCKER1> docker1
+<IP_DOCKER2> docker2
+<IP_DOCKER3> docker3
+### se possível, renomear o hostname das 3 máquinas para docker1, docker2 e docker3 e reiniciá-las para evitar erro na instalação e manutenção
+#tuning
+# On all servers:
+root@docker3:~/fb-evenem# chmod +x tuning.sh && ./tuning.sh
+
+############### 1 - install docker, git & other packages on all servers:
+apt-get update && apt-get install apt-transport-https ca-certificates curl gnupg-agent software-properties-common vim-tiny less telnet nmap tshark tcpdump strace wget ntpd 
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+apt-get update && apt-get install docker-ce docker-ce-cli containerd.io
+
+############### 1.1 - install glusterfs
+#On all servers, as root:
+apt install glusterfs-server
+systemctl start glusterd
+systemctl enable glusterd
+ssh-keygen -t rsa
+
+#From any single server:
+root@fb-wildfly-evenem:~/fb-evenem-wildfly# gluster peer probe docker1;
+peer probe: success.
+root@fb-wildfly-evenem:~/fb-evenem-wildfly# gluster peer probe docker2;
+root@fb-wildfly-evenem:~/fb-evenem-wildfly# gluster peer probe docker3;
+gluster peer status
+
+#On all servers: format new disk (example: /dev/sdb)
+mkfs.ext4 /dev/sdb
+mkdir -p /data/brick1/gv0
+echo '/dev/sdb /data/brick1 ext4 defaults 0 0' >> /etc/fstab
+mount /data/brick1
+
+#From any single server:
+root@docker1:~/fb-evenem-postgres# gluster volume create gv0 replica 3 docker{1..3}:/data/brick1/gv0 force
+gluster volume start gv0
+root@docker1:~/fb-evenem-postgres# gluster volume start gv0
+volume start: gv0: success
+
+#tuning glusterfs
+#From any single server:
+root@docker3:/data/brick1/gv0# gluster volume set gv0 performance.write-behind-window-size 64MB
+volume set: success
+root@docker3:/data/brick1/gv0# gluster volume set gv0 performance.cache-size 512MB
+volume set: success
+root@docker3:/data/brick1/gv0# gluster volume set gv0 performance.io-thread-count 32
+volume set: success
+
+root@ip-172-30-0-7:~/fb-evenem-postgres# gluster volume info
+
+# On all servers:
+mkdir /docker-vol
+echo 'localhost:/gv0 /docker-vol glusterfs defaults,_netdev 0 0' >> /etc/fstab
+mount /docker-vol
+
+# Create volume dirs
+mkdir -p /docker-vol/fb-evenem-postgres/etc /docker-vol/fb-evenem-postgres/log /docker-vol/fb-evenem-postgres/lib
+
+############### 2 - git clone
+##### RUN git clone
+# On all servers:
+apt-get install git git-lfs
+cd /root && git lfs clone https://github.com/marinoborges/fb-evenem
+
+############### 3.1 - set dockerfile variables if needed (DB_NAME, DB_USER, DB_PASS):
+# On all servers:
+root@docker3:~# vim fb-evenem/fb-evenem-postgres/dockerfile
+ARG PG_USER=postgres
+ARG DB_NAME=bradesco_enem3
+ARG DB_PASS=zZ0kKDEEUQnY
+root@docker3:~# vim fb-evenem/fb-evenem-wildfly/dockerfile
+ARG DB_NAME=bradesco_enem3
+ARG DB_USER=postgres
+ARG DB_PASS=zZ0kKDEEUQnY
+
+############### 3.2 - set composer file variables (change IP ADDRESS):
+# On all servers:
+root@docker3:~/fb-evenem# vim fb-evenem-web.yml
+			- "docker1:<IP_DOCKER1>"
+            - "docker2:<IP_DOCKER2>"
+            - "docker3:<IP_DOCKER3>"
+			
+############### 3.3 - docker build
+# On all servers:
+root@docker3:~/fb-evenem/fb-evenem-postgres# docker build -t fb-evenem-postgres .
+root@docker3:~/fb-evenem/fb-evenem-wildfly# docker build -t fb-evenem-wildfly .
+
+############### 4 - docker swarm init/join
+# On 1 server:
+docker1# docker swarm init
+# GERAR TOKEN PARA ADICIONAR NOVOS MANAGERS
+docker1# docker swarm join-token manager 
+# ADICIONAR docker2 e docker3 como managers
+docker2# docker swarm join --token <TOKEN_GERADO> (ex: SWMTKN-1-3gj9bv7jlsrca3dwoyhu7twlshflxzdtj6djmig0enhqb5ncgl-booywhsgfg0w1dontvtgd5otr 172.30.0.7:2377)
+docker3# docker swarm join --token <TOKEN_GERADO> (ex: SWMTKN-1-3gj9bv7jlsrca3dwoyhu7twlshflxzdtj6djmig0enhqb5ncgl-booywhsgfg0w1dontvtgd5otr 172.30.0.7:2377)
+
+############### 5 - deploy docker stack 
+### RUN docker stack deploy (em qualquer manager):
+root@docker1:~/fb-evenem# docker stack deploy -c fb-evenem-postgres.yml fb-evenem-postgres
+### ESPERA A BASE SUBIR
+root@docker1:~/fb-evenem# docker stack deploy -c fb-evenem-web.yml fb-evenem-web
+### SE DER ERRO NO DEPLOY DA STACK fb-evenem-web, PODE SER NECESSÁRIO REALIZAR O UNDEPLOY E DEPLOY NOVAMENTE, EX UNDEPLOY: (motivo: stack não permite especificar a ordem da criação dos artefatos)
+# docker stack rm fb-evenem-web
+
+### Verifica situação (em qualquer manager): deve haver uma instância do traefik em cada manager (3), 2 instâncias do wildfly e 1 instância do postgres (exemplo em app2.faculdadepater.com.br):
+root@docker3:~/fb-evenem# docker stack ps fb-evenem-postgres
+ID                  NAME                                          IMAGE                       NODE                DESIRED STATE       CURRENT STATE           ERROR                              PORTS
+l45n93lpmon8        fb-evenem-postgres_fb-evenem-postgres.1       fb-evenem-postgres:latest   docker1             Running             Running 36 hours ago 
+
+root@docker3:~/fb-evenem# docker stack ps fb-evenem-web
+ID                  NAME                                                  IMAGE                      NODE                DESIRED STATE       CURRENT STATE         ERROR                              PORTS
+i2mplk0i8ohk        fb-evenem-web_traefik.o6v5v1j3kgvofu5rdcg7iseug       traefik:1.7                docker1             Running             Running 2 days ago                               
+nbgj9ab393es        fb-evenem-web_traefik.vjgvli20ujaxyq60383bki7bn       traefik:1.7                docker2             Running             Running 2 days ago                               
+l6zp5xrzx6k1        fb-evenem-web_traefik.s9gimipvc940j6smknbhyc0r0       traefik:1.7                docker3             Running             Running 2 days ago                                                           
+xgakorppobmp        fb-evenem-web_fb-evenem-wildfly.1                     fb-evenem-wildfly:latest   docker3             Running             Running 2 days ago                               
+u86111npnket        fb-evenem-web_fb-evenem-wildfly.2                     fb-evenem-wildfly:latest   docker2             Running             Running 2 days ago       
+
+### Verificar serviços
+root@docker3:~/fb-evenem# docker service ls
+ID                  NAME                                    MODE                REPLICAS            IMAGE                       PORTS
+ucqy9anj09y5        fb-evenem-postgres_fb-evenem-postgres   replicated          1/1                 fb-evenem-postgres:latest   *:5432->5432/tcp
+t91sdcylcr0k        fb-evenem-web_fb-evenem-wildfly         replicated          2/2                 fb-evenem-wildfly:latest    *:8080->8080/tcp
+xdneknv9n9pq        fb-evenem-web_traefik                   global              3/3                 traefik:1.7                 *:80->80/tcp, *:8010->8080/tcp
+
+### Verificar redes
+root@docker2:~# docker network ls
+NETWORK ID          NAME                         DRIVER              SCOPE
+e66e12d18a6f        bridge                       bridge              local
+0553b9edb831        docker_gwbridge              bridge              local
+rjp1w6qdc4hw        fb-evenem-postgres_default   overlay             swarm
+j2hznhkzbpwe        fb-evenem-web_traefik-net    overlay             swarm
+e32b5a2c76d9        host                         host                local
+itcd3wxfq56t        ingress                      overlay             swarm
+c3ec5eb35ac4        none                         null                local
+
+## Verificar volumes (exemplo no manager que está executando o postgres)
+root@docker2:~# docker volume ls
+DRIVER              VOLUME NAME
+local               51371eb56b4c8ff8210950ef745738930f89f19437f8e98a52d0c7ec1db24d51
+local               fb-evenem-postgres_fb-evenem-postgres-etc
+local               fb-evenem-postgres_fb-evenem-postgres-lib
+local               fb-evenem-postgres_fb-evenem-postgres-log
+
+## Verificar acesso web apontando para qualquer um dos 3 IPs na porta 80 (traefik) ou 8080 (wildfly sem sticky session)
